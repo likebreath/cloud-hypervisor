@@ -3,20 +3,20 @@
 // found in the LICENSE file.
 
 #![no_main]
+mod rand_crosvm;
 
-use std::mem::size_of;
-
-use cros_fuzz::fuzz_target;
-use cros_fuzz::rand::FuzzRng;
-use devices::virtio::{DescriptorChain, Queue};
+use libfuzzer_sys::fuzz_target;
 use rand::{Rng, RngCore};
-use vm_memory::{GuestAddress, GuestMemory};
+use rand_crosvm::FuzzRng;
+use std::mem::size_of;
+use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+use vm_virtio::{DescriptorChain, Queue};
 
 const MAX_QUEUE_SIZE: u16 = 256;
 const MEM_SIZE: u64 = 1024 * 1024;
 
 thread_local! {
-    static GUEST_MEM: GuestMemory = GuestMemory::new(&[(GuestAddress(0), MEM_SIZE)]).unwrap();
+    static GUEST_MEM: GuestMemoryMmap = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), MEM_SIZE as usize)]).unwrap();
 }
 
 // These are taken from the virtio spec and can be used as a reference for the size calculations in
@@ -70,43 +70,48 @@ fuzz_target!(|data: &[u8]| {
         }
 
         // First zero out all of the memory.
-        let vs = mem
-            .get_slice_at_addr(GuestAddress(0), MEM_SIZE as usize)
-            .unwrap();
-        vs.write_bytes(0);
+        let buf: [u8; MEM_SIZE as usize] = [0; MEM_SIZE as usize];
+        mem.write_slice(&buf[..], GuestAddress(0)).unwrap();
 
         // Fill in the descriptor table.
         let queue_size = q.size as usize;
         let mut buf = vec![0u8; queue_size * size_of::<virtq_desc>()];
 
         rng.fill_bytes(&mut buf[..]);
-        mem.write_all_at_addr(&buf[..], q.desc_table).unwrap();
+        mem.write_slice(&buf[..], q.desc_table).unwrap();
 
         // Fill in the available ring. See the definition of virtq_avail above for the source of
         // these numbers.
         let avail_size = 4 + (queue_size * 2) + 2;
         buf.resize(avail_size, 0);
         rng.fill_bytes(&mut buf[..]);
-        mem.write_all_at_addr(&buf[..], q.avail_ring).unwrap();
+        mem.write_slice(&buf[..], q.avail_ring).unwrap();
 
         // Fill in the used ring. See the definition of virtq_used above for the source of
         // these numbers.
         let used_size = 4 + (queue_size * size_of::<virtq_used_elem>()) + 2;
         buf.resize(used_size, 0);
         rng.fill_bytes(&mut buf[..]);
-        mem.write_all_at_addr(&buf[..], q.used_ring).unwrap();
+        mem.write_slice(&buf[..], q.used_ring).unwrap();
 
-        while let Some(avail_desc) = q.pop(mem) {
+        let mut used_desc_heads = [(0, 0); MAX_QUEUE_SIZE as usize];
+        let mut used_count = 0;
+        for avail_desc in q.iter(&mem) {
             let idx = avail_desc.index;
             let total = avail_desc
                 .into_iter()
                 .filter(DescriptorChain::is_write_only)
                 .try_fold(0u32, |sum, cur| sum.checked_add(cur.len));
             if let Some(len) = total {
-                q.add_used(mem, idx, len);
+                used_desc_heads[used_count] = (idx, len);
             } else {
-                q.add_used(mem, idx, 0);
+                used_desc_heads[used_count] = (idx, 0);
             }
+            used_count += 1;
+        }
+
+        for &(desc_index, len) in &used_desc_heads[..used_count] {
+            q.add_used(&mem, desc_index, len);
         }
     });
 });
