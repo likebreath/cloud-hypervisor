@@ -77,6 +77,7 @@ dependencies = [
  "vm-fdt",
  "vm-memory",
  "vm-migration",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -278,9 +279,9 @@ dependencies = [
 
 [[package]]
 name = "env_logger"
-version = "0.8.4"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a19187fea3ac7e84da7dacf48de0c45d63c6a76f9490dae389aead16c243fce3"
+checksum = "0b2cf0344971ee6c64c31be0d530793fba457d322dfec2810c453d0ef228f9c3"
 dependencies = [
  "atty",
  "humantime",
@@ -527,7 +528,7 @@ checksum = "b16bd47d9e329435e309c58469fe0791c2d0d1ba96ec0954152a5ae2b04387dc"
 [[package]]
 name = "micro_http"
 version = "0.1.0"
-source = "git+https://github.com/firecracker-microvm/micro-http?branch=main#81a3c71efb19a52434fd5e29d7aa255ac41d497b"
+source = "git+https://github.com/firecracker-microvm/micro-http?branch=main#9517a300370a158a7af0996b7eebf040d171e1a4"
 dependencies = [
  "libc",
  "vmm-sys-util",
@@ -1104,7 +1105,7 @@ dependencies = [
 [[package]]
 name = "vfio-ioctls"
 version = "0.1.0"
-source = "git+https://github.com/rust-vmm/vfio-ioctls?branch=master#0f7eb6f855b80d60a7e09ac6df43b46ba69f9e9e"
+source = "git+https://github.com/rust-vmm/vfio-ioctls?branch=master#9b84069e9f419c5369b9a313859cac7e9828d331"
 dependencies = [
  "byteorder",
  "kvm-bindings",
