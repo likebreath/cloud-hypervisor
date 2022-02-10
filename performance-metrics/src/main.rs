@@ -179,7 +179,7 @@ lazy_static! {
             control: Default::default(),
         });
         m.insert(PerformanceTest {
-            name: "performance_virtio_net_throughput_single_queue_rx",
+            name: "performance_virtio_net_throughput_bps_single_queue_rx",
             func_ptr: performance_net_throughput,
             control: PerformanceTestControl {
                 queue_num: Some(1), // used as 'queue_pairs'
@@ -189,7 +189,7 @@ lazy_static! {
             }
         });
         m.insert(PerformanceTest {
-            name: "performance_virtio_net_throughput_single_queue_tx",
+            name: "performance_virtio_net_throughput_bps_single_queue_tx",
             func_ptr: performance_net_throughput,
             control: PerformanceTestControl {
                 queue_num: Some(1), // used as 'queue_pairs'
@@ -199,7 +199,7 @@ lazy_static! {
             }
         });
         m.insert(PerformanceTest {
-            name: "performance_virtio_net_throughput_multi_queue_rx",
+            name: "performance_virtio_net_throughput_bps_multi_queue_rx",
             func_ptr: performance_net_throughput,
             control: PerformanceTestControl {
                 queue_num: Some(2), // used as 'queue_pairs'
@@ -209,7 +209,7 @@ lazy_static! {
             }
         });
         m.insert(PerformanceTest {
-            name: "performance_virtio_net_throughput_multi_queue_tx",
+            name: "performance_virtio_net_throughput_bps_multi_queue_tx",
             func_ptr: performance_net_throughput,
             control: PerformanceTestControl {
                 queue_num: Some(2), // used as 'queue_pairs'
@@ -219,7 +219,7 @@ lazy_static! {
             }
         });
         m.insert(PerformanceTest {
-            name: "performance_block_io_read",
+            name: "performance_block_io_bps_read",
             func_ptr: performance_block_io,
             control: PerformanceTestControl {
                 queue_num: Some(1),
@@ -229,7 +229,7 @@ lazy_static! {
             }
         });
         m.insert(PerformanceTest {
-            name: "performance_block_io_write",
+            name: "performance_block_io_bps_write",
             func_ptr: performance_block_io,
             control: PerformanceTestControl {
                 queue_num: Some(1),
@@ -239,7 +239,7 @@ lazy_static! {
             }
         });
         m.insert(PerformanceTest {
-            name: "performance_block_io_random_read",
+            name: "performance_block_io_bps_random_read",
             func_ptr: performance_block_io,
             control: PerformanceTestControl {
                 queue_num: Some(1),
@@ -249,7 +249,7 @@ lazy_static! {
             }
         });
         m.insert(PerformanceTest {
-            name: "performance_block_io_random_write",
+            name: "performance_block_io_bps_random_write",
             func_ptr: performance_block_io,
             control: PerformanceTestControl {
                 queue_num: Some(1),
@@ -259,7 +259,7 @@ lazy_static! {
             }
         });
         m.insert(PerformanceTest {
-            name: "performance_block_io_multi_queue_read",
+            name: "performance_block_io_bps_multi_queue_read",
             func_ptr: performance_block_io,
             control: PerformanceTestControl {
                 queue_num: Some(2),
@@ -269,7 +269,7 @@ lazy_static! {
             }
         });
         m.insert(PerformanceTest {
-            name: "performance_block_io_multi_queue_write",
+            name: "performance_block_io_bps_multi_queue_write",
             func_ptr: performance_block_io,
             control: PerformanceTestControl {
                 queue_num: Some(2),
@@ -279,7 +279,7 @@ lazy_static! {
             }
         });
         m.insert(PerformanceTest {
-            name: "performance_block_io_multi_queue_random_read",
+            name: "performance_block_io_bps_multi_queue_random_read",
             func_ptr: performance_block_io,
             control: PerformanceTestControl {
                 queue_num: Some(2),
@@ -289,7 +289,7 @@ lazy_static! {
             }
         });
         m.insert(PerformanceTest {
-            name: "performance_block_io_multi_queue_random_write",
+            name: "performance_block_io_bps_multi_queue_random_write",
             func_ptr: performance_block_io,
             control: PerformanceTestControl {
                 queue_num: Some(2),
