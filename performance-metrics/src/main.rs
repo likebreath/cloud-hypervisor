@@ -28,6 +28,8 @@ pub struct PerformanceTestResult {
     name: String,
     mean: f64,
     std_dev: f64,
+    max: f64,
+    min: f64,
 }
 
 pub struct PerformanceTestControl {
@@ -107,11 +109,15 @@ impl PerformanceTest {
 
         let mean = mean(&metrics).unwrap();
         let std_dev = std_deviation(&metrics).unwrap();
+        let max = metrics.clone().into_iter().reduce(f64::max).unwrap();
+        let min = metrics.clone().into_iter().reduce(f64::min).unwrap();
 
         PerformanceTestResult {
             name: self.name.to_string(),
             mean,
             std_dev,
+            max,
+            min,
         }
     }
 
