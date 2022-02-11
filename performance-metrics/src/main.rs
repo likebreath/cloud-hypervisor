@@ -32,6 +32,13 @@ pub struct PerformanceTestResult {
     min: f64,
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct MetricsReport {
+    pub commit_hash: String,
+    pub date: String,
+    pub results: Vec<PerformanceTestResult>,
+}
+
 pub struct PerformanceTestControl {
     test_time: u32,
     test_iterations: u32,
@@ -308,8 +315,8 @@ lazy_static! {
     };
 }
 
-fn run_test_with_timetout(test: &'static PerformanceTest) -> Result<String, Error> {
-    let (sender, receiver) = channel::<Result<String, Error>>();
+fn run_test_with_timetout(test: &'static PerformanceTest) -> Result<PerformanceTestResult, Error> {
+    let (sender, receiver) = channel::<Result<PerformanceTestResult, Error>>();
     thread::spawn(move || {
         println!("Test '{}' running .. ({})", test.name, test.control);
 
@@ -319,7 +326,7 @@ fn run_test_with_timetout(test: &'static PerformanceTest) -> Result<String, Erro
                     "Test '{}' .. ok: mean = {}, std_dev = {}",
                     test_result.name, test_result.mean, test_result.std_dev
                 );
-                Ok(serde_json::to_string(&test_result).unwrap())
+                Ok(test_result)
             }
             Err(_) => Err(Error::TestFailed),
         };
@@ -340,18 +347,30 @@ fn run_test_with_timetout(test: &'static PerformanceTest) -> Result<String, Erro
         })?
 }
 
+fn date() -> String {
+    let output = test_infra::exec_host_command_output("date");
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
 fn main() {
     let test_filter = env::var("TEST_FILTER").map_or("".to_string(), |o| o);
 
     init_tests();
 
     // Run performance tests sequentially and report results (in both readable/json format)
-    let mut json_output = String::new();
+    let mut metrics_report = MetricsReport {
+        // 'BUILT_VERSION' is set by the build script 'build.rs' at
+        // compile time
+        commit_hash: env!("BUILT_VERSION").to_string(),
+        date: date(),
+        results: Vec::new(),
+    };
+
     for test in TEST_LIST.iter() {
         if test.name.contains(&test_filter) {
             match run_test_with_timetout(test) {
                 Ok(r) => {
-                    json_output.push_str(&r);
+                    metrics_report.results.push(r);
                 }
                 Err(e) => {
                     eprintln!("Aborting test due to error: '{:?}'", e);
@@ -364,5 +383,8 @@ fn main() {
     cleanup_tests();
 
     // Todo: Report/upload to the metrics database
-    println!("\n\nTests result in json format: \n {}", json_output);
+    println!(
+        "\n\nTests result in json format: \n {}",
+        serde_json::to_string_pretty(&metrics_report).unwrap()
+    );
 }
