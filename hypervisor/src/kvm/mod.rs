@@ -756,25 +756,23 @@ impl vm::Vm for KvmVm {
         #[repr(C)]
         struct TdxInitVm {
             attributes: u64,
-            max_vcpus: u32,
-            padding: u32,
             mrconfigid: [u64; 6],
             mrowner: [u64; 6],
             mrownerconfig: [u64; 6],
             cpuid_nent: u32,
             cpuid_padding: u32,
             cpuid_entries: [kvm_bindings::kvm_cpuid_entry2; 256],
+            reserved: [u64; 1260], // For future extensibility, the size(struct kvm_tdx_init_vm) = 16KB.
         }
         let data = TdxInitVm {
             attributes: 1 << TDX_ATTR_SEPT_VE_DISABLE,
-            max_vcpus,
-            padding: 0,
             mrconfigid: [0; 6],
             mrowner: [0; 6],
             mrownerconfig: [0; 6],
             cpuid_nent: cpuid.len() as u32,
             cpuid_padding: 0,
             cpuid_entries: cpuid.as_slice().try_into().unwrap(),
+            reserved: [0; 1260],
         };
 
         tdx_command(
