@@ -142,7 +142,7 @@ pub enum TdxExitStatus {
 }
 
 #[cfg(feature = "tdx")]
-const TDX_MAX_NR_CPUID_CONFIGS: usize = 6;
+const TDX_MAX_NR_CPUID_CONFIGS: usize = 15;
 
 #[cfg(feature = "tdx")]
 #[repr(C)]
