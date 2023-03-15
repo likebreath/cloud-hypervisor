@@ -198,6 +198,12 @@ pub enum HypervisorVmError {
     InitializeTdx(#[source] std::io::Error),
     #[cfg(feature = "tdx")]
     ///
+    /// Enable KVM_CAP_MAX_VCPUS error
+    ///
+    #[error("Failed to enable KVM_CAP_MAX_VCPUS: {0}")]
+    EnableMaxVcpus(#[source] anyhow::Error),
+    #[cfg(feature = "tdx")]
+    ///
     /// Error finalizing the TDX configuration on the VM
     ///
     #[error("Failed to finalize TDX: {0}")]

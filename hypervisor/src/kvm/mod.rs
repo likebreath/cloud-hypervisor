@@ -749,6 +749,15 @@ impl vm::Vm for KvmVm {
     fn tdx_init(&self, cpuid: &[CpuIdEntry], max_vcpus: u32) -> vm::Result<()> {
         const TDX_ATTR_SEPT_VE_DISABLE: usize = 28;
 
+        let mut cap = kvm_enable_cap {
+            cap: kvm_bindings::KVM_CAP_MAX_VCPUS,
+            ..Default::default()
+        };
+        cap.args[0] = max_vcpus as u64;
+        self.fd
+            .enable_cap(&cap)
+            .map_err(|e| vm::HypervisorVmError::EnableMaxVcpus(e.into()))?;
+
         let mut cpuid: Vec<kvm_bindings::kvm_cpuid_entry2> =
             cpuid.iter().map(|e| (*e).into()).collect();
         cpuid.resize(256, kvm_bindings::kvm_cpuid_entry2::default());
