@@ -1045,6 +1045,21 @@ impl CpuManager {
                                             unreachable!("Couldn't get a mutable reference from Arc<dyn Vcpu> as there are multiple instances");
                                         }
                                     }
+                                    #[cfg(feature = "tdx")]
+                                    VmExit::MemoryFault => {
+                                        if let Some(vcpu) = Arc::get_mut(&mut vcpu.vcpu) {
+                                            if let Err(e) = vcpu.handle_memory_fault() {
+                                                error!("Failed to convert memory: {:?}", e);
+                                                exit_evt.write(1).unwrap();
+                                                break;
+                                            };
+                                        } else {
+                                            // We should never reach this code as
+                                            // this means the design from the code
+                                            // is wrong.
+                                            unreachable!("Couldn't get a mutable reference from Arc<dyn Vcpu> as there are multiple instances");
+                                        }
+                                    }
                                     _ => {
                                         error!(
                                             "VCPU generated error: {:?}",

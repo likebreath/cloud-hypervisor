@@ -270,6 +270,8 @@ pub enum VmExit<'a> {
     Hyperv,
     #[cfg(feature = "tdx")]
     Tdx,
+    #[cfg(feature = "tdx")]
+    MemoryFault,
     #[cfg(feature = "kvm")]
     Debug,
 }
@@ -440,6 +442,13 @@ pub trait Vcpu: Send + Sync {
     /// Set the status code for TDX exit
     ///
     fn set_tdx_status(&mut self, _status: TdxExitStatus) {
+        unimplemented!()
+    }
+    #[cfg(feature = "tdx")]
+    ///
+    /// Handle KVM_EXIT_MEMORY_FAULT
+    ///
+    fn handle_memory_fault(&mut self) -> Result<()> {
         unimplemented!()
     }
     #[cfg(target_arch = "x86_64")]
