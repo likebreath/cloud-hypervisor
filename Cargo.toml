@@ -56,6 +56,7 @@ kvm-bindings = { git = "https://github.com/cloud-hypervisor/kvm-bindings", branc
 kvm-ioctls = { git = "https://github.com/rust-vmm/kvm-ioctls", branch = "main" }
 versionize_derive = { git = "https://github.com/cloud-hypervisor/versionize_derive", branch = "ch" }
 vhost = { git = "https://github.com/rust-vmm/vhost", branch = "main" }
+vm-memory = { git = "https://github.com/likebreath/vm-memory", branch = "0607/tdx_kvm_mem_private" }
 
 [dev-dependencies]
 dirs = "5.0.0"
