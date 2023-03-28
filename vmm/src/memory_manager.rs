@@ -194,6 +194,9 @@ pub struct MemoryManager {
     pub acpi_address: Option<GuestAddress>,
     #[cfg(target_arch = "aarch64")]
     uefi_flash: Option<GuestMemoryAtomic<GuestMemoryMmap>>,
+
+    #[cfg(feature = "tdx")]
+    tdx_enabled: bool,
 }
 
 #[derive(Debug)]
@@ -203,6 +206,14 @@ pub enum Error {
 
     /// Failed to set shared file length.
     SharedFileSetLen(io::Error),
+
+    #[cfg(feature = "tdx")]
+    /// Failed to create file with memfd_restricted.
+    RestrictedFileCreate(io::Error),
+
+    #[cfg(feature = "tdx")]
+    /// Failed to set length for file created with memfd_restricted.
+    RestrictedFileSetLen(io::Error),
 
     /// Mmap backed guest memory error
     GuestMemory(MmapError),
@@ -527,6 +538,7 @@ impl MemoryManager {
         zones: &[MemoryZoneConfig],
         prefault: Option<bool>,
         thp: bool,
+        #[cfg(feature = "tdx")] tdx_enabled: bool,
     ) -> Result<(Vec<Arc<GuestRegionMmap>>, MemoryZones), Error> {
         let mut zone_iter = zones.iter();
         let mut mem_regions = Vec::new();
@@ -596,6 +608,8 @@ impl MemoryManager {
                     zone.host_numa_node,
                     None,
                     thp,
+                    #[cfg(feature = "tdx")]
+                    tdx_enabled,
                 )?;
 
                 // Add region to the list of regions associated with the
@@ -654,6 +668,7 @@ impl MemoryManager {
         prefault: Option<bool>,
         mut existing_memory_files: HashMap<u32, File>,
         thp: bool,
+        #[cfg(feature = "tdx")] tdx_enabled: bool,
     ) -> Result<(Vec<Arc<GuestRegionMmap>>, MemoryZones), Error> {
         let mut memory_regions = Vec::new();
         let mut memory_zones = HashMap::new();
@@ -677,6 +692,8 @@ impl MemoryManager {
                         zone_config.host_numa_node,
                         existing_memory_files.remove(&guest_ram_mapping.slot),
                         thp,
+                        #[cfg(feature = "tdx")]
+                        tdx_enabled,
                     )?;
                     memory_regions.push(Arc::clone(&region));
                     if let Some(memory_zone) = memory_zones.get_mut(&guest_ram_mapping.zone_id) {
@@ -1014,6 +1031,8 @@ impl MemoryManager {
                 prefault,
                 existing_memory_files.unwrap_or_default(),
                 config.thp,
+                #[cfg(feature = "tdx")]
+                tdx_enabled,
             )?;
             let guest_memory =
                 GuestMemoryMmap::from_arc_regions(regions).map_err(Error::GuestMemory)?;
@@ -1050,8 +1069,14 @@ impl MemoryManager {
                 })
                 .collect();
 
-            let (mem_regions, mut memory_zones) =
-                Self::create_memory_regions_from_zones(&ram_regions, &zones, prefault, config.thp)?;
+            let (mem_regions, mut memory_zones) = Self::create_memory_regions_from_zones(
+                &ram_regions,
+                &zones,
+                prefault,
+                config.thp,
+                #[cfg(feature = "tdx")]
+                tdx_enabled,
+            )?;
 
             let mut guest_memory =
                 GuestMemoryMmap::from_arc_regions(mem_regions).map_err(Error::GuestMemory)?;
@@ -1098,6 +1123,8 @@ impl MemoryManager {
                                 zone.host_numa_node,
                                 None,
                                 config.thp,
+                                #[cfg(feature = "tdx")]
+                                tdx_enabled,
                             )?;
 
                             guest_memory = guest_memory
@@ -1227,6 +1254,8 @@ impl MemoryManager {
             #[cfg(target_arch = "aarch64")]
             uefi_flash: None,
             thp: config.thp,
+            #[cfg(feature = "tdx")]
+            tdx_enabled,
         };
 
         #[cfg(target_arch = "aarch64")]
@@ -1290,6 +1319,19 @@ impl MemoryManager {
     fn memfd_create(name: &ffi::CStr, flags: u32) -> Result<RawFd, io::Error> {
         // SAFETY: FFI call with correct arguments
         let res = unsafe { libc::syscall(libc::SYS_memfd_create, name.as_ptr(), flags) };
+
+        if res < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(res as RawFd)
+        }
+    }
+
+    #[cfg(feature = "tdx")]
+    fn memfd_restricted() -> Result<RawFd, io::Error> {
+        const SYS_MEMFD_RESTRICTED: i64 = 451;
+        // SAFETY: FFI call with correct arguments
+        let res = unsafe { libc::syscall(SYS_MEMFD_RESTRICTED, 0) };
 
         if res < 0 {
             Err(io::Error::last_os_error())
@@ -1365,6 +1407,18 @@ impl MemoryManager {
         Ok(FileOffset::new(f, 0))
     }
 
+    #[cfg(feature = "tdx")]
+    fn create_anonymous_file_restricted(size: usize) -> Result<FileOffset, Error> {
+        let fd = Self::memfd_restricted().map_err(Error::RestrictedFileCreate)?;
+
+        // SAFETY: fd is valid
+        let f = unsafe { File::from_raw_fd(fd) };
+        f.set_len(size as u64)
+            .map_err(Error::RestrictedFileSetLen)?;
+
+        Ok(FileOffset::new(f, 0))
+    }
+
     fn open_backing_file(backing_file: &PathBuf, file_offset: u64) -> Result<FileOffset, Error> {
         if backing_file.is_dir() {
             Err(Error::DirectoryAsBackingFileForMemory)
@@ -1392,8 +1446,33 @@ impl MemoryManager {
         host_numa_node: Option<u32>,
         existing_memory_file: Option<File>,
         thp: bool,
+        #[cfg(feature = "tdx")] tdx_enabled: bool,
     ) -> Result<Arc<GuestRegionMmap>, Error> {
         let mut mmap_flags = libc::MAP_NORESERVE;
+
+        #[cfg(feature = "tdx")]
+        if tdx_enabled {
+            assert!(backing_file.is_none() && existing_memory_file.is_none());
+            info!("TDX: Ignoring 'prefault', 'thp', and 'numa' configuration for TD VMs");
+
+            // Always enable MAP_SHARED with anonymous file otherwise we will trigger #4805
+            // because the MAP_PRIVATE will trigger CoW against the backing file with
+            // the VFIO pinning
+            mmap_flags |= libc::MAP_SHARED;
+
+            let fo = Some(Self::create_anonymous_file(size, hugepages, hugepage_size)?);
+            let fo_private = Some(Self::create_anonymous_file_restricted(size)?);
+
+            let region = GuestRegionMmap::new_private(
+                MmapRegion::build(fo, size, libc::PROT_READ | libc::PROT_WRITE, mmap_flags)
+                    .map_err(Error::GuestMemoryRegion)?,
+                start_addr,
+                fo_private,
+            )
+            .map_err(Error::GuestMemory)?;
+
+            return Ok(Arc::new(region));
+        }
 
         // The duplication of mmap_flags ORing here is unfortunate but it also makes
         // the complexity of the handling clear.
@@ -1534,6 +1613,8 @@ impl MemoryManager {
             None,
             None,
             self.thp,
+            #[cfg(feature = "tdx")]
+            self.tdx_enabled,
         )?;
 
         // Map it into the guest
