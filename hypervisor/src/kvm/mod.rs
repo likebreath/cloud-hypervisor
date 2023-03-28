@@ -93,7 +93,10 @@ use std::mem;
 use thiserror::Error;
 use vfio_ioctls::VfioDeviceFd;
 #[cfg(feature = "tdx")]
-use vmm_sys_util::{ioctl::ioctl_with_val, ioctl_ioc_nr, ioctl_iowr_nr};
+use vmm_sys_util::{
+    ioctl::{ioctl_with_ref, ioctl_with_val},
+    ioctl_ioc_nr, ioctl_iow_nr, ioctl_iowr_nr,
+};
 ///
 /// Export generically-named wrappers of kvm-bindings for Unix-based platforms
 ///
@@ -118,6 +121,14 @@ const TDG_VP_VMCALL_INVALID_OPERAND: u64 = 0x8000000000000000;
 
 #[cfg(feature = "tdx")]
 ioctl_iowr_nr!(KVM_MEMORY_ENCRYPT_OP, KVMIO, 0xba, std::os::raw::c_ulong);
+#[cfg(feature = "tdx")]
+// Currently `KVM_SET_USER_MEMORY_REGION2` shares the same ioctl with `KVM_SET_USER_MEMORY_REGION`
+ioctl_iow_nr!(
+    KVM_SET_USER_MEMORY_REGION2,
+    KVMIO,
+    0x46,
+    kvm_bindings::kvm_userspace_memory_region
+);
 
 #[cfg(feature = "tdx")]
 #[repr(u32)]
@@ -185,6 +196,10 @@ impl From<kvm_userspace_memory_region> for UserMemoryRegion {
             memory_size: region.memory_size,
             userspace_addr: region.userspace_addr,
             flags,
+            #[cfg(feature = "tdx")]
+            restricted_fd: None,
+            #[cfg(feature = "tdx")]
+            restricted_offset: None,
         }
     }
 }
@@ -214,6 +229,55 @@ impl From<UserMemoryRegion> for kvm_userspace_memory_region {
     }
 }
 
+#[cfg(feature = "tdx")]
+impl From<kvm_bindings::kvm_userspace_memory_region2> for UserMemoryRegion {
+    fn from(region: kvm_bindings::kvm_userspace_memory_region2) -> Self {
+        let mut flags = USER_MEMORY_REGION_READ | crate::USER_MEMORY_REGION_PRIVATE;
+        if region.flags & KVM_MEM_READONLY == 0 {
+            flags |= USER_MEMORY_REGION_WRITE;
+        }
+
+        UserMemoryRegion {
+            slot: region.slot,
+            guest_phys_addr: region.guest_phys_addr,
+            memory_size: region.memory_size,
+            userspace_addr: region.userspace_addr,
+            flags,
+            restricted_offset: Some(region.restrictedmem_offset),
+            restricted_fd: Some(region.restrictedmem_fd),
+        }
+    }
+}
+
+#[cfg(feature = "tdx")]
+impl From<UserMemoryRegion> for kvm_bindings::kvm_userspace_memory_region2 {
+    fn from(region: UserMemoryRegion) -> Self {
+        assert!(
+            region.flags & USER_MEMORY_REGION_READ != 0,
+            "KVM mapped memory is always readable"
+        );
+        assert!(
+            region.flags & crate::USER_MEMORY_REGION_PRIVATE != 0,
+            "kvm_userspace_memory_region2 is used for private memory regions only"
+        );
+
+        let mut flags = kvm_bindings::KVM_MEM_PRIVATE;
+        if region.flags & USER_MEMORY_REGION_WRITE == 0 {
+            flags |= KVM_MEM_READONLY;
+        }
+
+        kvm_bindings::kvm_userspace_memory_region2 {
+            slot: region.slot,
+            guest_phys_addr: region.guest_phys_addr,
+            memory_size: region.memory_size,
+            userspace_addr: region.userspace_addr,
+            flags,
+            restrictedmem_offset: region.restricted_offset.unwrap(),
+            restrictedmem_fd: region.restricted_fd.unwrap(),
+            ..Default::default()
+        }
+    }
+}
 impl From<kvm_mp_state> for MpState {
     fn from(s: kvm_mp_state) -> Self {
         MpState::Kvm(s)
@@ -544,6 +608,7 @@ impl vm::Vm for KvmVm {
     ///
     /// Creates a memory region structure that can be used with {create/remove}_user_memory_region
     ///
+    #[cfg(not(feature = "tdx"))]
     fn make_user_memory_region(
         &self,
         slot: u32,
@@ -568,9 +633,70 @@ impl vm::Vm for KvmVm {
         .into()
     }
     ///
+    /// Creates a memory region structure that can be used with {create/remove}_user_memory_region
+    ///
+    #[cfg(feature = "tdx")]
+    fn make_user_memory_region(
+        &self,
+        slot: u32,
+        guest_phys_addr: u64,
+        memory_size: u64,
+        userspace_addr: u64,
+        readonly: bool,
+        log_dirty_pages: bool,
+        restricted_offset: Option<u64>,
+        restricted_fd: Option<u32>,
+    ) -> UserMemoryRegion {
+        if let Some(restricted_fd) = restricted_fd {
+            let flags = if readonly { KVM_MEM_READONLY } else { 0 } | kvm_bindings::KVM_MEM_PRIVATE;
+
+            kvm_bindings::kvm_userspace_memory_region2 {
+                slot,
+                guest_phys_addr,
+                memory_size,
+                userspace_addr,
+                flags,
+                restrictedmem_offset: restricted_offset.unwrap(),
+                restrictedmem_fd: restricted_fd,
+                ..Default::default()
+            }
+            .into()
+        } else {
+            kvm_userspace_memory_region {
+                slot,
+                guest_phys_addr,
+                memory_size,
+                userspace_addr,
+                flags: if readonly { KVM_MEM_READONLY } else { 0 }
+                    | if log_dirty_pages {
+                        KVM_MEM_LOG_DIRTY_PAGES
+                    } else {
+                        0
+                    },
+            }
+            .into()
+        }
+    }
+    ///
     /// Creates a guest physical memory region.
     ///
     fn create_user_memory_region(&self, user_memory_region: UserMemoryRegion) -> vm::Result<()> {
+        #[cfg(feature = "tdx")]
+        if user_memory_region.restricted_fd.is_some() {
+            let region: kvm_bindings::kvm_userspace_memory_region2 = user_memory_region.into();
+
+            // SAFETY: Safe because guest regions are guaranteed not to overlap.
+            let ret = unsafe { ioctl_with_ref(&self.fd, KVM_SET_USER_MEMORY_REGION2(), &region) };
+
+            if ret < 0 {
+                return Err(vm::HypervisorVmError::CreateUserMemory(
+                    std::io::Error::last_os_error().into(),
+                ));
+            }
+
+            return Ok(());
+        }
+
         let mut region: kvm_userspace_memory_region = user_memory_region.into();
 
         if (region.flags & KVM_MEM_LOG_DIRTY_PAGES) != 0 {

@@ -8,6 +8,7 @@ edition = "2021"
 default = []
 kvm = ["vfio-ioctls/kvm"]
 mshv = ["vfio-ioctls/mshv"]
+tdx = []
 
 [dependencies]
 anyhow = "1.0.71"

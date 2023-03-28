@@ -914,6 +914,8 @@ impl MemoryManager {
                     self.mergeable,
                     false,
                     self.log_dirty,
+                    #[cfg(feature = "tdx")]
+                    None,
                 )?;
 
                 let file_offset = if let Some(file_offset) = region.file_offset() {
@@ -1625,6 +1627,8 @@ impl MemoryManager {
             self.mergeable,
             false,
             self.log_dirty,
+            #[cfg(feature = "tdx")]
+            region.restricted_file_offset(),
         )?;
         self.guest_ram_mappings.push(GuestRamMapping {
             gpa: region.start_addr().raw_value(),
@@ -1710,6 +1714,7 @@ impl MemoryManager {
         slot_id
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_userspace_mapping(
         &mut self,
         guest_phys_addr: u64,
@@ -1718,6 +1723,7 @@ impl MemoryManager {
         mergeable: bool,
         readonly: bool,
         log_dirty: bool,
+        #[cfg(feature = "tdx")] restricted_fo: Option<&FileOffset>,
     ) -> Result<u32, Error> {
         let slot = self.allocate_memory_slot();
         let mem_region = self.vm.make_user_memory_region(
@@ -1727,12 +1733,18 @@ impl MemoryManager {
             userspace_addr,
             readonly,
             log_dirty,
+            #[cfg(feature = "tdx")]
+            restricted_fo.map(|fo| fo.start()),
+            #[cfg(feature = "tdx")]
+            restricted_fo.map(|fo| fo.file().as_raw_fd() as u32),
         );
 
         info!(
             "Creating userspace mapping: {:x} -> {:x} {:x}, slot {}",
             guest_phys_addr, userspace_addr, memory_size, slot
         );
+        #[cfg(feature = "tdx")]
+        info!("restricted_fo = {:?}", restricted_fo);
 
         self.vm
             .create_user_memory_region(mem_region)
@@ -1800,6 +1812,10 @@ impl MemoryManager {
             userspace_addr,
             false, /* readonly -- don't care */
             false, /* log dirty */
+            #[cfg(feature = "tdx")]
+            None,
+            #[cfg(feature = "tdx")]
+            None,
         );
 
         self.vm
@@ -2002,6 +2018,8 @@ impl MemoryManager {
                 false,
                 false,
                 false,
+                #[cfg(feature = "tdx")]
+                None,
             )?;
 
             sgx_epc_region.insert(

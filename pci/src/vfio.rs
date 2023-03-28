@@ -1559,6 +1559,10 @@ impl VfioPciDevice {
                         user_memory_region.host_addr,
                         false,
                         false,
+                        #[cfg(feature = "tdx")]
+                        None,
+                        #[cfg(feature = "tdx")]
+                        None,
                     );
 
                     self.vm
@@ -1582,6 +1586,10 @@ impl VfioPciDevice {
                     user_memory_region.host_addr,
                     false,
                     false,
+                    #[cfg(feature = "tdx")]
+                    None,
+                    #[cfg(feature = "tdx")]
+                    None,
                 );
 
                 if let Err(e) = self.vm.remove_user_memory_region(r) {
@@ -1750,6 +1758,10 @@ impl PciDevice for VfioPciDevice {
                         user_memory_region.host_addr,
                         false,
                         false,
+                        #[cfg(feature = "tdx")]
+                        None,
+                        #[cfg(feature = "tdx")]
+                        None,
                     );
 
                     self.vm
@@ -1771,6 +1783,10 @@ impl PciDevice for VfioPciDevice {
                         user_memory_region.host_addr,
                         false,
                         false,
+                        #[cfg(feature = "tdx")]
+                        None,
+                        #[cfg(feature = "tdx")]
+                        None,
                     );
 
                     self.vm
