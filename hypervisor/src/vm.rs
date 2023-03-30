@@ -220,6 +220,12 @@ pub enum HypervisorVmError {
     ///
     #[error("Failed to set memory attributes: {0}")]
     SetMemoryAttribute(#[source] anyhow::Error),
+    #[cfg(feature = "tdx")]
+    ///
+    /// Error converting memory between shared and private
+    ///
+    #[error("Failed to convert memory between shared and private for TDX: {0}")]
+    ConvertMemoryTdx(#[source] anyhow::Error),
     ///
     /// Create Vgic error
     ///
@@ -378,4 +384,6 @@ pub trait VmOps: Send + Sync {
     fn pio_read(&self, port: u64, data: &mut [u8]) -> Result<()>;
     #[cfg(target_arch = "x86_64")]
     fn pio_write(&self, port: u64, data: &[u8]) -> Result<()>;
+    #[cfg(feature = "tdx")]
+    fn convert_memory(&self, gpa: u64, size: u64, shared_to_private: bool) -> Result<()>;
 }

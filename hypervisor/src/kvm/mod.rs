@@ -2298,7 +2298,17 @@ impl cpu::Vcpu for KvmVcpu {
 
         debug!("Handle KVM_EXIT_MEMORY_FAULT: {:?}", details);
 
-        Ok(())
+        let vm_ops = self
+            .vm_ops
+            .as_ref()
+            .ok_or(cpu::HypervisorCpuError::MissingVmOps)?;
+        vm_ops
+            .convert_memory(
+                details.gpa,
+                details.size,
+                (details.flags & KVM_MEMORY_EXIT_FLAG_PRIVATE) != 0,
+            )
+            .map_err(|e| cpu::HypervisorCpuError::RunVcpu(e.into()))
     }
 
     #[cfg(target_arch = "x86_64")]

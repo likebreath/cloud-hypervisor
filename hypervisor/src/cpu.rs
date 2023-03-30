@@ -240,6 +240,12 @@ pub enum HypervisorCpuError {
     #[cfg(feature = "tdx")]
     #[error("Unknown TDX VM call")]
     UnknownTdxVmCall,
+    ///
+    /// Missing VM ops
+    ///
+    #[cfg(feature = "tdx")]
+    #[error("Missing VM ops")]
+    MissingVmOps,
     #[cfg(target_arch = "aarch64")]
     ///
     /// Failed to intialize PMU

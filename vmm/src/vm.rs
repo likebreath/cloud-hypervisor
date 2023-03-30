@@ -78,6 +78,8 @@ use std::mem;
 use std::mem::size_of;
 use std::num::Wrapping;
 use std::ops::Deref;
+#[cfg(feature = "tdx")]
+use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
@@ -356,6 +358,8 @@ struct VmOpsHandler {
     #[cfg(target_arch = "x86_64")]
     io_bus: Arc<Bus>,
     mmio_bus: Arc<Bus>,
+    #[cfg(feature = "tdx")]
+    vm: Arc<dyn hypervisor::Vm>,
 }
 
 impl VmOps for VmOpsHandler {
@@ -416,6 +420,89 @@ impl VmOps for VmOpsHandler {
             }
             _ => {}
         };
+        Ok(())
+    }
+
+    #[cfg(feature = "tdx")]
+    fn convert_memory(
+        &self,
+        gpa: u64,
+        size: u64,
+        shared_to_private: bool,
+    ) -> result::Result<(), HypervisorVmError> {
+        self.vm
+            .encrypt_reg_region(gpa, size, shared_to_private)
+            .unwrap();
+
+        let memory = self.memory.memory();
+        let region =
+            memory
+                .find_region(GuestAddress(gpa))
+                .ok_or(HypervisorVmError::ConvertMemoryTdx(anyhow!(
+                    "Failed to find region: gpa ={gpa}, size = {size}"
+                )))?;
+
+        let offset = gpa - region.start_addr().0;
+
+        let (fo_from, fo_to) = if shared_to_private {
+            (
+                region.file_offset().unwrap(),
+                region.restricted_file_offset().unwrap(),
+            )
+        } else {
+            (
+                region.restricted_file_offset().unwrap(),
+                region.file_offset().unwrap(),
+            )
+        };
+
+        debug!(
+            "convert_memory(): gpa = {:x}, size = {:x}, shared_to_private = {}, \
+            offset = {:x}, fo_from = {:?}, fo_to = {:?}, region = {:?}",
+            gpa, size, shared_to_private, offset, fo_from, fo_to, region,
+        );
+
+        // SAFETY: FFI call with valid arguments
+        let res = unsafe {
+            libc::fallocate64(
+                fo_from.file().as_raw_fd(),
+                libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE,
+                (offset + fo_from.start()) as libc::off64_t,
+                size as libc::off64_t,
+            )
+        };
+        if res != 0 {
+            return Err(HypervisorVmError::ConvertMemoryTdx(
+                io::Error::last_os_error().into(),
+            ));
+        }
+        if shared_to_private {
+            let hva = memory.get_host_address(GuestAddress(gpa)).unwrap();
+            let res =
+                // SAFETY: FFI call with valid arguments
+                unsafe { libc::madvise(hva as *mut libc::c_void, size as libc::size_t, libc::MADV_DONTNEED) };
+            if res != 0 {
+                return Err(HypervisorVmError::ConvertMemoryTdx(
+                    io::Error::last_os_error().into(),
+                ));
+            }
+        }
+
+        // SAFETY: FFI call with valid arguments
+        let res = unsafe {
+            libc::fallocate64(
+                fo_to.file().as_raw_fd(),
+                0,
+                (offset + fo_to.start()) as libc::off64_t,
+                size as libc::off64_t,
+            )
+        };
+        if res != 0 {
+            return Err(HypervisorVmError::ConvertMemoryTdx(
+                io::Error::last_os_error().into(),
+            ));
+        }
+
         Ok(())
     }
 }
@@ -511,6 +598,8 @@ impl Vm {
             #[cfg(target_arch = "x86_64")]
             io_bus: io_bus.clone(),
             mmio_bus: mmio_bus.clone(),
+            #[cfg(feature = "tdx")]
+            vm: vm.clone(),
         });
 
         let cpus_config = { &config.lock().unwrap().cpus.clone() };
