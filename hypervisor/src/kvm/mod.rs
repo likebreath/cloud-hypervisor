@@ -131,6 +131,13 @@ ioctl_iow_nr!(
     0x46,
     kvm_bindings::kvm_userspace_memory_region
 );
+#[cfg(feature = "tdx")]
+ioctl_iowr_nr!(
+    KVM_SET_MEMORY_ATTRIBUTES,
+    KVMIO,
+    0xd3,
+    kvm_bindings::kvm_memory_attributes
+);
 
 #[cfg(feature = "tdx")]
 #[repr(u32)]
@@ -961,6 +968,33 @@ impl vm::Vm for KvmVm {
         )
         .map_err(vm::HypervisorVmError::InitMemRegionTdx)
     }
+
+    #[cfg(feature = "tdx")]
+    /// Set or unset memory attribute 'KVM_MEMORY_ATTRIBUTE_PRIVATE'
+    fn encrypt_reg_region(&self, address: u64, size: u64, reg_region: bool) -> vm::Result<()> {
+        let attribute = kvm_bindings::kvm_memory_attributes {
+            address,
+            size,
+            attributes: if reg_region {
+                kvm_bindings::KVM_MEMORY_ATTRIBUTE_PRIVATE as u64
+            } else {
+                0
+            },
+            flags: 0,
+        };
+
+        // SAFETY: Safe because guest regions are guaranteed not to overlap.
+        let ret = unsafe { ioctl_with_ref(&self.fd, KVM_SET_MEMORY_ATTRIBUTES(), &attribute) };
+
+        if ret < 0 {
+            return Err(vm::HypervisorVmError::SetMemoryAttribute(
+                std::io::Error::last_os_error().into(),
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Downcast to the underlying KvmVm type
     fn as_any(&self) -> &dyn Any {
         self

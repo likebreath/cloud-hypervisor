@@ -214,6 +214,12 @@ pub enum HypervisorVmError {
     ///
     #[error("Failed to initialize memory region TDX: {0}")]
     InitMemRegionTdx(#[source] std::io::Error),
+    #[cfg(feature = "tdx")]
+    ///
+    /// Failed to set memory attribute
+    ///
+    #[error("Failed to set memory attributes: {0}")]
+    SetMemoryAttribute(#[source] anyhow::Error),
     ///
     /// Create Vgic error
     ///
@@ -352,6 +358,11 @@ pub trait Vm: Send + Sync + Any {
         _size: u64,
         _measure: bool,
     ) -> Result<()> {
+        unimplemented!()
+    }
+    #[cfg(feature = "tdx")]
+    /// Set or unset memory attribute 'KVM_MEMORY_ATTRIBUTE_PRIVATE'
+    fn encrypt_reg_region(&self, _guest_address: u64, _size: u64, _reg_region: bool) -> Result<()> {
         unimplemented!()
     }
     /// Downcast to the underlying hypervisor VM type
