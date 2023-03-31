@@ -1939,6 +1939,10 @@ impl Vm {
 
         for section in sections {
             self.vm
+                .encrypt_reg_region(section.address, section.size, true)
+                .map_err(Error::InitializeTdxMemoryRegion)?;
+
+            self.vm
                 .tdx_init_memory_region(
                     mem.get_host_address(GuestAddress(section.address)).unwrap() as u64,
                     section.address,
