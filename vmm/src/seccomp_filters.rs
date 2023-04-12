@@ -145,6 +145,8 @@ mod kvm {
     pub const KVM_CREATE_DEVICE: u64 = 0xc00c_aee0;
     pub const KVM_GET_REG_LIST: u64 = 0xc008_aeb0;
     pub const KVM_MEMORY_ENCRYPT_OP: u64 = 0xc008_aeba;
+    #[cfg(feature = "tdx")]
+    pub const KVM_SET_MEMORY_ATTRIBUTES: u64 = 0xc020_aed3;
 }
 
 #[cfg(feature = "kvm")]
@@ -240,6 +242,8 @@ fn create_vmm_ioctl_seccomp_rule_common_kvm() -> Result<Vec<SeccompRule>, Backen
         and![Cond::new(1, ArgLen::Dword, Eq, KVM_SET_REGS)?],
         and![Cond::new(1, ArgLen::Dword, Eq, KVM_SET_USER_MEMORY_REGION,)?],
         and![Cond::new(1, ArgLen::Dword, Eq, KVM_SET_VCPU_EVENTS,)?],
+        #[cfg(feature = "tdx")]
+        and![Cond::new(1, ArgLen::Dword, Eq, KVM_SET_MEMORY_ATTRIBUTES)?],
     ])
 }
 
@@ -500,6 +504,9 @@ fn pty_foreground_thread_rules() -> Result<Vec<(i64, Vec<SeccompRule>)>, Backend
 fn vmm_thread_rules(
     hypervisor_type: HypervisorType,
 ) -> Result<Vec<(i64, Vec<SeccompRule>)>, BackendError> {
+    #[cfg(feature = "tdx")]
+    const SYS_MEMFD_RESTRICTED: i64 = 451;
+
     Ok(vec![
         (libc::SYS_accept4, vec![]),
         #[cfg(target_arch = "x86_64")]
@@ -555,6 +562,8 @@ fn vmm_thread_rules(
         (libc::SYS_madvise, vec![]),
         (libc::SYS_mbind, vec![]),
         (libc::SYS_memfd_create, vec![]),
+        #[cfg(feature = "tdx")]
+        (SYS_MEMFD_RESTRICTED, vec![]),
         (libc::SYS_mmap, vec![]),
         (libc::SYS_mprotect, vec![]),
         (libc::SYS_mremap, vec![]),
@@ -642,6 +651,8 @@ fn create_vcpu_ioctl_seccomp_rule_kvm() -> Result<Vec<SeccompRule>, BackendError
         and![Cond::new(1, ArgLen::Dword, Eq, KVM_SET_GSI_ROUTING,)?],
         and![Cond::new(1, ArgLen::Dword, Eq, KVM_SET_USER_MEMORY_REGION,)?],
         and![Cond::new(1, ArgLen::Dword, Eq, KVM_RUN,)?],
+        #[cfg(feature = "tdx")]
+        and![Cond::new(1, ArgLen::Dword, Eq, KVM_SET_MEMORY_ATTRIBUTES)?],
     ])
 }
 
@@ -707,6 +718,8 @@ fn vcpu_thread_rules(
         (libc::SYS_dup, vec![]),
         (libc::SYS_exit, vec![]),
         (libc::SYS_epoll_ctl, vec![]),
+        #[cfg(feature = "tdx")]
+        (libc::SYS_fallocate, vec![]),
         (libc::SYS_fstat, vec![]),
         (libc::SYS_futex, vec![]),
         (libc::SYS_getrandom, vec![]),
