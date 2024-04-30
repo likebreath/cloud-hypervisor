@@ -1120,7 +1120,7 @@ impl vm::Vm for KvmVm {
     ///
     #[cfg(feature = "tdx")]
     fn tdx_init(&self, cpuid: &[CpuIdEntry], max_vcpus: u32) -> vm::Result<()> {
-        const TDX_ATTR_SEPT_VE_DISABLE: usize = 28;
+        const TDX_ATTR_DEBUG: usize = 0;
         const KVM_CAP_MAX_VCPUS: u32 = 66;
 
         let mut cap = kvm_enable_cap {
@@ -1148,7 +1148,7 @@ impl vm::Vm for KvmVm {
             cpuid_entries: [kvm_bindings::kvm_cpuid_entry2; 256],
         }
         let data = TdxInitVm {
-            attributes: 1 << TDX_ATTR_SEPT_VE_DISABLE,
+            attributes: 1 << TDX_ATTR_DEBUG,
             mrconfigid: [0; 6],
             mrowner: [0; 6],
             mrownerconfig: [0; 6],
