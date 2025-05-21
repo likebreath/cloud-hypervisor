@@ -86,7 +86,7 @@ use seccompiler::SeccompAction;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracer::trace_scoped;
-use vfio_ioctls::{VfioContainer, VfioDevice, VfioDeviceFd};
+use vfio_ioctls::{VfioContainer, VfioDevice, VfioDeviceFd, VfioOps};
 use virtio_devices::transport::{VirtioPciDevice, VirtioPciDeviceActivator, VirtioTransport};
 use virtio_devices::vhost_user::VhostUserConfig;
 use virtio_devices::{
@@ -1022,7 +1022,7 @@ pub struct DeviceManager {
     // VFIO container
     // Only one container can be created, therefore it is stored as part of the
     // DeviceManager to be reused.
-    vfio_container: Option<Arc<VfioContainer>>,
+    vfio_container: Option<Arc<dyn VfioOps>>,
 
     // Paravirtualized IOMMU
     iommu_device: Option<Arc<Mutex<virtio_devices::Iommu>>>,
@@ -3656,7 +3656,7 @@ impl DeviceManager {
         self.add_vfio_device(device_cfg)
     }
 
-    fn create_vfio_container(&self) -> DeviceManagerResult<Arc<VfioContainer>> {
+    fn create_vfio_container(&self) -> DeviceManagerResult<Arc<dyn VfioOps>> {
         let passthrough_device = self
             .passthrough_device
             .as_ref()
