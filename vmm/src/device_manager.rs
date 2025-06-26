@@ -53,6 +53,8 @@ use devices::gic;
 use devices::interrupt_controller::InterruptController;
 #[cfg(target_arch = "x86_64")]
 use devices::ioapic;
+#[cfg(feature = "ivshmem")]
+use devices::ivshmem::{IvshmemError, IvshmemOps};
 #[cfg(target_arch = "aarch64")]
 use devices::legacy::Pl011;
 #[cfg(any(target_arch = "x86_64", target_arch = "riscv64"))]
@@ -4180,6 +4182,9 @@ impl DeviceManager {
             self.pci_resources(&id, pci_segment_id)?;
         let snapshot = snapshot_from_id(self.snapshot.as_ref(), id.as_str());
 
+        let ivshmem_ops: Arc<dyn IvshmemOps> = Arc::new(IvshmemHandler {
+            memory_manager: self.memory_manager.clone(),
+        });
         let ivshmem_device = Arc::new(Mutex::new(
             devices::IvshmemDevice::new(
                 id.clone(),
@@ -4187,6 +4192,8 @@ impl DeviceManager {
                 self.reprogram_evt
                     .try_clone()
                     .map_err(DeviceManagerError::EventFd)?,
+                ivshmem_cfg.path.clone(),
+                ivshmem_ops,
                 snapshot,
             )
             .map_err(DeviceManagerError::IvshmemCreate)?,
@@ -4967,6 +4974,24 @@ impl DeviceManager {
     #[cfg(not(target_arch = "riscv64"))]
     pub(crate) fn acpi_platform_addresses(&self) -> &AcpiPlatformAddresses {
         &self.acpi_platform_addresses
+    }
+}
+
+#[cfg(feature = "ivshmem")]
+struct IvshmemHandler {
+    memory_manager: Arc<Mutex<MemoryManager>>,
+}
+#[cfg(feature = "ivshmem")]
+impl IvshmemOps for IvshmemHandler {
+    fn map_ram_region(
+        &self,
+        _start_addr: u64,
+        _backing_file: PathBuf,
+        _size: usize,
+        _old_mapping: Option<UserspaceMapping>,
+    ) -> Result<(Arc<GuestRegionMmap>, UserspaceMapping), IvshmemError> {
+        // Todo: pretty much replicate "remapping_ram_region()" with proper error handling
+        unimplemented!()
     }
 }
 

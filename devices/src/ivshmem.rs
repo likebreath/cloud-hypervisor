@@ -3,11 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-use std::any::Any;
-use std::result;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Barrier, Mutex};
-
 use anyhow::anyhow;
 use byteorder::{ByteOrder, LittleEndian};
 use pci::{
@@ -16,6 +11,11 @@ use pci::{
     PCI_CONFIGURATION_ID,
 };
 use serde::{Deserialize, Serialize};
+use std::any::Any;
+use std::path::PathBuf;
+use std::result;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Barrier, Mutex};
 use thiserror::Error;
 use vm_allocator::{AddressAllocator, SystemAllocator};
 use vm_device::{BusDevice, Resource, UserspaceMapping};
@@ -54,6 +54,16 @@ impl PciSubclass for IvshmemSubclass {
     }
 }
 
+pub trait IvshmemOps: Send + Sync {
+    fn map_ram_region(
+        &self,
+        start_addr: u64,
+        backing_file: PathBuf,
+        size: usize,
+        old_mapping: Option<UserspaceMapping>,
+    ) -> Result<(Arc<GuestRegionMmap>, UserspaceMapping), IvshmemError>;
+}
+
 pub struct IvshmemDevice {
     id: String,
 
@@ -71,6 +81,9 @@ pub struct IvshmemDevice {
     region_size: u64,
     userspace_mapping: Option<UserspaceMapping>,
     reprogram_evt: EventFd,
+
+    backing_file: PathBuf,
+    ivshmem_ops: Arc<dyn IvshmemOps>,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone)]
@@ -86,6 +99,8 @@ impl IvshmemDevice {
         id: String,
         region_size: u64,
         reprogram_evt: EventFd,
+        backing_file: PathBuf,
+        ivshmem_ops: Arc<dyn IvshmemOps>,
         snapshot: Option<Snapshot>,
     ) -> Result<Self, IvshmemError> {
         let pci_configuration_state =
@@ -134,6 +149,8 @@ impl IvshmemDevice {
                 region: None,
                 userspace_mapping: None,
                 reprogram_evt,
+                backing_file,
+                ivshmem_ops,
             }
         } else {
             IvshmemDevice {
@@ -148,6 +165,8 @@ impl IvshmemDevice {
                 region: None,
                 userspace_mapping: None,
                 reprogram_evt,
+                backing_file,
+                ivshmem_ops,
             }
         };
         Ok(device)
@@ -347,7 +366,16 @@ impl PciDevice for IvshmemDevice {
 
     fn move_bar(&mut self, old_base: u64, new_base: u64) -> result::Result<(), std::io::Error> {
         if new_base == self.data_bar_addr() {
-            self.reprogram_evt.write(1).ok();
+            let (new_region, new_mapping) = self
+                .ivshmem_ops
+                .map_ram_region(
+                    new_base,
+                    self.backing_file.clone(),
+                    self.region_size as usize,
+                    self.userspace_mapping.clone(),
+                )
+                .unwrap(); // todo: properly handle errors
+            self.assign_region(new_region, new_mapping);
         }
         for bar in self.bar_regions.iter_mut() {
             if bar.addr() == old_base {
