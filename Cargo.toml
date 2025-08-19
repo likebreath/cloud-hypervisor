@@ -152,3 +152,7 @@ thiserror = "2.0.12"
 uuid = { version = "1.18.1" }
 wait-timeout = "0.2.1"
 zerocopy = { version = "0.8.26", default-features = false }
+
+[patch.crates-io]
+vfio-bindings = { git = "https://github.com/likebreath/vfio/", branch = "0715/vfio_cdev_rfc" }
+vfio-ioctls =  { git = "https://github.com/likebreath/vfio/", branch = "0715/vfio_cdev_rfc" }
