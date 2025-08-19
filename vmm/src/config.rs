@@ -753,6 +753,10 @@ uuid=<dmi_device_uuid>,oem_strings=<list_of_strings>"
         syntax.push_str(",sev_snp=on|off");
     }
 
+    if cfg!(feature = "iommufd") {
+        syntax.push_str(",iommufd=on|off");
+    }
+
     syntax.push_str("\"");
 
     syntax
@@ -772,6 +776,8 @@ impl PlatformConfig {
         parser.add("tdx");
         #[cfg(feature = "sev_snp")]
         parser.add("sev_snp");
+        #[cfg(feature = "iommufd")]
+        parser.add("iommufd");
         parser.parse(platform).map_err(Error::ParsePlatform)?;
 
         let num_pci_segments: u16 = parser
@@ -806,6 +812,12 @@ impl PlatformConfig {
             .map_err(Error::ParsePlatform)?
             .unwrap_or(Toggle(false))
             .0;
+        #[cfg(feature = "iommufd")]
+        let iommufd = parser
+            .convert::<Toggle>("iommufd")
+            .map_err(Error::ParsePlatform)?
+            .unwrap_or(Toggle(false))
+            .0;
         Ok(PlatformConfig {
             num_pci_segments,
             iommu_segments,
@@ -817,6 +829,8 @@ impl PlatformConfig {
             tdx,
             #[cfg(feature = "sev_snp")]
             sev_snp,
+            #[cfg(feature = "iommufd")]
+            iommufd,
         })
     }
 

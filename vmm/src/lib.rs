@@ -437,6 +437,8 @@ pub fn feature_list() -> Vec<String> {
         "tracing".to_string(),
         #[cfg(feature = "ivshmem")]
         "ivshmem".to_string(),
+        #[cfg(feature = "iommufd")]
+        "iommufd".to_string(),
     ]
 }
 
