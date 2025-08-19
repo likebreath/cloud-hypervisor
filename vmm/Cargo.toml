@@ -12,7 +12,10 @@ fw_cfg = ["devices/fw_cfg"]
 guest_debug = ["gdbstub", "gdbstub_arch", "kvm"]
 igvm = ["dep:igvm", "hex", "igvm_defs", "mshv-bindings", "range_map_vec"]
 io_uring = ["block/io_uring"]
-iommufd = []
+iommufd = [
+  "iommufd-ioctls",
+  "vfio-ioctls/vfio_cdev",
+]
 ivshmem = ["devices/ivshmem"]
 kvm = [
   "arch/kvm",
@@ -55,6 +58,7 @@ hex = { version = "0.4.3", optional = true }
 hypervisor = { path = "../hypervisor" }
 igvm = { workspace = true, optional = true }
 igvm_defs = { workspace = true, optional = true }
+iommufd-ioctls = { workspace = true, optional = true }
 landlock = "0.4.4"
 libc = { workspace = true }
 linux-loader = { workspace = true, features = ["bzimage", "elf", "pe"] }

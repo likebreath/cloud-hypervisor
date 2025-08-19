@@ -72,6 +72,8 @@ use event_monitor::event;
 use hypervisor::IoEventAddress;
 #[cfg(target_arch = "aarch64")]
 use hypervisor::arch::aarch64::regs::AARCH64_PMU_IRQ;
+#[cfg(feature = "iommufd")]
+use iommufd_ioctls::IommuFd;
 use libc::{
     MAP_NORESERVE, MAP_PRIVATE, MAP_SHARED, O_TMPFILE, PROT_READ, PROT_WRITE, TCSANOW, tcsetattr,
     termios,
@@ -86,6 +88,8 @@ use seccompiler::SeccompAction;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracer::trace_scoped;
+#[cfg(feature = "iommufd")]
+use vfio_ioctls::VfioIommufd;
 use vfio_ioctls::{VfioContainer, VfioDevice, VfioDeviceFd, VfioOps};
 use virtio_devices::transport::{VirtioPciDevice, VirtioPciDeviceActivator, VirtioTransport};
 use virtio_devices::vhost_user::VhostUserConfig;
@@ -3666,6 +3670,32 @@ impl DeviceManager {
             .try_clone()
             .map_err(DeviceManagerError::VfioCreate)?;
 
+        #[cfg(feature = "iommufd")]
+        {
+            let iommufd = self
+                .config
+                .lock()
+                .unwrap()
+                .platform
+                .as_ref()
+                .map_or(false, |p| p.iommufd);
+
+            if iommufd {
+                info!("Using vfio cdev mode with iommufd.");
+                let iommufd = IommuFd::new().unwrap();
+                let vfio_iommufd =
+                    VfioIommufd::new(Arc::new(iommufd), None, Some(Arc::new(dup))).unwrap(); // todo
+                return Ok(Arc::new(vfio_iommufd));
+            } else {
+                info!("Using vfio legacy mode with vfio container/group.");
+                return Ok(Arc::new(
+                    VfioContainer::new(Some(Arc::new(dup)))
+                        .map_err(DeviceManagerError::VfioCreate)?,
+                ));
+            }
+        }
+
+        #[cfg(not(feature = "iommufd"))]
         Ok(Arc::new(
             VfioContainer::new(Some(Arc::new(dup))).map_err(DeviceManagerError::VfioCreate)?,
         ))

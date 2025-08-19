@@ -1039,6 +1039,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "iommufd-bindings"
+version = "0.1.0"
+source = "git+https://github.com/cloud-hypervisor/iommufd?rev=083c016#083c016653508584bb990ef80b91dd04fba22020"
+
+[[package]]
+name = "iommufd-ioctls"
+version = "0.1.0"
+source = "git+https://github.com/cloud-hypervisor/iommufd?rev=083c016#083c016653508584bb990ef80b91dd04fba22020"
+dependencies = [
+ "iommufd-bindings",
+ "thiserror 2.0.17",
+ "vmm-sys-util 0.14.0",
+]
+
+[[package]]
 name = "ipnetwork"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2249,6 +2264,8 @@ version = "0.5.2"
 source = "git+https://github.com/likebreath/vfio?branch=0113%2Frevert_rust_vmm_bumps#7c750853eefbda5f03a94754e16fd3ea333ce0b2"
 dependencies = [
  "byteorder",
+ "iommufd-bindings",
+ "iommufd-ioctls",
  "kvm-bindings",
  "kvm-ioctls",
  "libc",
@@ -2477,6 +2494,7 @@ dependencies = [
  "hypervisor",
  "igvm",
  "igvm_defs",
+ "iommufd-ioctls",
  "landlock",
  "libc",
  "linux-loader",
