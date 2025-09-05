@@ -108,6 +108,19 @@ mod kvm {
     pub const KVM_SET_NESTED_STATE: u64 = 1082175167;
 }
 
+#[cfg(feature = "iommufd")]
+mod iommufd {
+    // See include/uapi/linux/iommufd.h in the kernel code.
+    pub const IOMMU_IOAS_ALLOC: u64 = 0x3b81;
+    pub const IOMMU_IOAS_MAP: u64 = 0x3b85;
+    pub const IOMMU_IOAS_UNMAP: u64 = 0x3b86;
+
+    // See include/uapi/linux/vfio.h in the kernel code.
+    pub const VFIO_DEVICE_BIND_IOMMUFD: u64 = 0x3b76;
+    pub const VFIO_DEVICE_ATTACH_IOMMUFD_PT: u64 = 0x3b77;
+    pub const VFIO_DEVICE_DETACH_IOMMUFD_PT: u64 = 0x3b78;
+}
+
 // MSHV IOCTL code. This is unstable until the kernel code has been declared stable.
 #[cfg(feature = "mshv")]
 use hypervisor::mshv::mshv_ioctls::*;
@@ -240,6 +253,29 @@ fn create_vmm_ioctl_seccomp_rule_common_kvm() -> Result<Vec<SeccompRule>, Backen
     ])
 }
 
+#[cfg(feature = "iommufd")]
+fn create_vmm_ioctl_seccomp_rule_iommufd() -> Result<Vec<SeccompRule>, BackendError> {
+    use iommufd::*;
+    Ok(or![
+        and![Cond::new(1, ArgLen::Dword, Eq, IOMMU_IOAS_ALLOC)?],
+        and![Cond::new(1, ArgLen::Dword, Eq, IOMMU_IOAS_MAP)?],
+        and![Cond::new(1, ArgLen::Dword, Eq, IOMMU_IOAS_UNMAP)?],
+        and![Cond::new(1, ArgLen::Dword, Eq, VFIO_DEVICE_BIND_IOMMUFD)?],
+        and![Cond::new(
+            1,
+            ArgLen::Dword,
+            Eq,
+            VFIO_DEVICE_ATTACH_IOMMUFD_PT
+        )?],
+        and![Cond::new(
+            1,
+            ArgLen::Dword,
+            Eq,
+            VFIO_DEVICE_DETACH_IOMMUFD_PT
+        )?],
+    ])
+}
+
 fn create_vmm_ioctl_seccomp_rule_hypervisor(
     hypervisor_type: HypervisorType,
 ) -> Result<Vec<SeccompRule>, BackendError> {
@@ -359,8 +395,12 @@ fn create_vmm_ioctl_seccomp_rule_common(
     ];
 
     let hypervisor_rules = create_vmm_ioctl_seccomp_rule_hypervisor(hypervisor_type)?;
-
     common_rules.extend(hypervisor_rules);
+
+    #[cfg(feature = "iommufd")]
+    let iommufd_rules = create_vmm_ioctl_seccomp_rule_iommufd()?;
+    #[cfg(feature = "iommufd")]
+    common_rules.extend(iommufd_rules);
 
     Ok(common_rules)
 }
@@ -751,6 +791,21 @@ fn create_vcpu_ioctl_seccomp_rule_hypervisor(
     }
 }
 
+#[cfg(feature = "iommufd")]
+fn create_vcpu_ioctl_seccomp_rule_iommufd() -> Result<Vec<SeccompRule>, BackendError> {
+    use iommufd::*;
+    Ok(or![
+        and![Cond::new(1, ArgLen::Dword, Eq, IOMMU_IOAS_MAP)?],
+        and![Cond::new(1, ArgLen::Dword, Eq, IOMMU_IOAS_UNMAP)?],
+        and![Cond::new(
+            1,
+            ArgLen::Dword,
+            Eq,
+            VFIO_DEVICE_DETACH_IOMMUFD_PT
+        )?],
+    ])
+}
+
 fn create_vcpu_ioctl_seccomp_rule(
     hypervisor_type: HypervisorType,
 ) -> Result<Vec<SeccompRule>, BackendError> {
@@ -771,8 +826,12 @@ fn create_vcpu_ioctl_seccomp_rule(
     ];
 
     let hypervisor_rules = create_vcpu_ioctl_seccomp_rule_hypervisor(hypervisor_type)?;
-
     rules.extend(hypervisor_rules);
+
+    #[cfg(feature = "iommufd")]
+    let iommufd_rules = create_vcpu_ioctl_seccomp_rule_iommufd()?;
+    #[cfg(feature = "iommufd")]
+    rules.extend(iommufd_rules);
 
     Ok(rules)
 }
