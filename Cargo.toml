@@ -52,8 +52,8 @@ linux-loader = "0.13.1"
 mshv-bindings = "0.6.5"
 mshv-ioctls = "0.6.5"
 seccompiler = "0.5.0"
-vfio-bindings = { version = "0.6.0", default-features = false }
-vfio-ioctls = { version = "0.5.1", default-features = false }
+vfio-bindings = { version = "0.6.1", default-features = false }
+vfio-ioctls = { version = "0.5.2", default-features = false }
 vfio_user = { version = "0.1.1", default-features = false }
 vhost = { version = "0.14.0", default-features = false }
 vhost-user-backend = { version = "0.20.0", default-features = false }
@@ -120,3 +120,7 @@ unnecessary_semicolon = "deny"
 [workspace.lints.rust]
 # `level = warn` is irrelevant here but mandatory for rustc/cargo
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(devcli_testenv)'] }
+
+[patch.crates-io]
+vfio-bindings = { git = "https://github.com/likebreath/vfio", branch="0113/revert_rust_vmm_bumps" }
+vfio-ioctls = { git = "https://github.com/likebreath/vfio", branch="0113/revert_rust_vmm_bumps" }
