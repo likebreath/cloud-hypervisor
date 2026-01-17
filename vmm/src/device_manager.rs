@@ -73,7 +73,15 @@ use hypervisor::IoEventAddress;
 #[cfg(target_arch = "aarch64")]
 use hypervisor::arch::aarch64::regs::AARCH64_PMU_IRQ;
 #[cfg(feature = "iommufd")]
-use iommufd_ioctls::IommuFd;
+use iommufd_bindings::{
+    iommu_hw_info_arm_smmuv3, iommu_hwpt_data_type,
+    iommu_hwpt_data_type_IOMMU_HWPT_DATA_ARM_SMMUV3, iommu_viommu_arm_smmuv3_invalidate,
+};
+#[cfg(feature = "iommufd")]
+use iommufd_ioctls::{
+    IommuFd, IommufdError, IommufdHwInfoData, IommufdHwptData, IommufdInvalidateData,
+    IommufdVDevice, IommufdVIommu,
+};
 use libc::{
     MAP_NORESERVE, MAP_PRIVATE, MAP_SHARED, O_TMPFILE, PROT_READ, PROT_WRITE, TCSANOW, tcsetattr,
     termios,
@@ -88,9 +96,9 @@ use seccompiler::SeccompAction;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracer::trace_scoped;
-#[cfg(feature = "iommufd")]
-use vfio_ioctls::VfioIommufd;
 use vfio_ioctls::{VfioContainer, VfioDevice, VfioDeviceFd, VfioOps};
+#[cfg(feature = "iommufd")]
+use vfio_ioctls::{VfioError, VfioIommufd};
 use virtio_devices::transport::{VirtioPciDevice, VirtioPciDeviceActivator, VirtioTransport};
 use virtio_devices::vhost_user::VhostUserConfig;
 use virtio_devices::{
@@ -678,6 +686,42 @@ pub enum DeviceManagerError {
     /// Disk resizing failed.
     #[error("Disk resize error")]
     DiskResize(#[source] virtio_devices::block::Error),
+
+    #[cfg(feature = "smmuv3")]
+    #[error("The same device is already attached to vSMMUv3 IOMMU: {0}")]
+    DuplicatedVDevice(u64),
+
+    #[cfg(feature = "smmuv3")]
+    #[error("vDevice not initialized for the device: {0}")]
+    VDeviceNotInitialized(u64),
+
+    #[cfg(feature = "smmuv3")]
+    #[error("vIOMMU not initialized for the vSMMUv3 instance")]
+    VIommuNotInitialized,
+
+    #[cfg(feature = "smmuv3")]
+    #[error("Failed to get device IOMMU hardware info: {0}")]
+    GetIommuHwInfo(#[source] IommufdError),
+
+    #[cfg(feature = "smmuv3")]
+    #[error("The IOMMU hardware and virtual IOMMU are incompatible")]
+    IncompatibleIommuType,
+
+    #[cfg(feature = "smmuv3")]
+    #[error("Failed to uninstall nested stage for vIOMMU: {0}")]
+    UninstallNestedSte(#[source] VfioError),
+
+    #[cfg(feature = "smmuv3")]
+    #[error("Failed to install nested stage for vIOMMU: {0}")]
+    InstallNestedSte(#[source] VfioError),
+
+    #[cfg(feature = "smmuv3")]
+    #[error("Failed to invalidate IOMMU cache: {0}")]
+    InvalidateCache(#[source] IommufdError),
+
+    #[cfg(feature = "smmuv3")]
+    #[error("Invalid invalidate command")]
+    InvalidInvalidateCommand,
 }
 
 pub type DeviceManagerResult<T> = result::Result<T, DeviceManagerError>;
@@ -955,6 +999,164 @@ impl AccessPlatform for SevSnpPageAccessProxy {
     }
 }
 
+#[cfg(feature = "smmuv3")]
+#[derive(Default)]
+struct SMMUv3DeviceInfo {
+    // Add fields as necessary to hold additional info about the vSMMUv3 instance
+}
+
+#[cfg(feature = "smmuv3")]
+#[derive(Default)]
+struct VirtualSMMUv3 {
+    // The vIommu instance representing a slice of the physical SMMUv3 being used
+    pub viommu: Option<Arc<IommufdVIommu>>,
+    // Map from virtual Stream ID to (IommufdVDevice, VfioDevice reference)
+    pub vfio_devices: HashMap<u64, (IommufdVDevice, Arc<VfioDevice>)>,
+    // Unique identifier for the vSMMUv3 instance
+    pub id: String,
+    // Additional info about the vSMMUv3 instance
+    pub info: SMMUv3DeviceInfo,
+}
+
+#[cfg(feature = "smmuv3")]
+// Convert PCI BDF to vSMMUv3 virtual stream ID (virt_sid)
+// Device BDF -> vSID mapping is defined in IORT
+fn bdf_to_virt_sid(_bdf: &PciBdf) -> u64 {
+    unimplemented!()
+}
+
+#[cfg(feature = "smmuv3")]
+impl VirtualSMMUv3 {
+    /// Create a new VirtualSMMUv3 instance
+    /// # Arguments
+    /// * `id` - Unique identifier for the vSMMUv3 instance
+    pub fn new(id: String) -> Self {
+        VirtualSMMUv3 {
+            viommu: None,
+            vfio_devices: HashMap::new(),
+            id,
+            info: SMMUv3DeviceInfo::default(),
+        }
+    }
+    /// Attach a VFIO device behind the vSMMUv3 instance
+    /// # Arguments
+    /// * `virt_sid` - Virtual Stream ID assigned to the device
+    /// * `vdevice` - IommufdVDevice representing the VFIO device in the context of iommufd
+    /// * `vfio_device` - Reference to the underlying VFIO device
+    /// # Returns
+    /// * `Ok(true)` if the device was successfully attached
+    /// * `Err(DeviceManagerError)` if there was an error during attachment
+    pub fn attach_vfio_device(
+        &mut self,
+        virt_sid: u64,
+        vdevice: Option<IommufdVDevice>,
+        vfio_device: Arc<VfioDevice>,
+    ) -> DeviceManagerResult<bool> {
+        if let Some(vdevice) = vdevice {
+            // check compatibility
+            self.check_compatibility(&vdevice)?;
+            // Insert the device
+            if let Some(_) = self.vfio_devices.insert(virt_sid, (vdevice, vfio_device)) {
+                return Err(DeviceManagerError::DuplicatedVDevice(virt_sid));
+            };
+
+            Ok(true)
+        } else {
+            return Err(DeviceManagerError::VDeviceNotInitialized(virt_sid));
+        }
+    }
+
+    /// Uninstall s1 nested stage table entries for the device behind vSMMUv3
+    /// # Arguments
+    /// * `virt_sid` - Virtual Stream ID assigned to the device
+    /// * `abort` - Whether to abort or bypass ongoing transactions
+    pub fn uninstall_nested_ste(&mut self, virt_sid: u64, abort: bool) -> DeviceManagerResult<()> {
+        if let Some((vdevice, vfio_device)) = self.vfio_devices.get_mut(&virt_sid) {
+            vfio_device
+                .uninstall_s1_hwpt(vdevice, abort)
+                .map_err(DeviceManagerError::UninstallNestedSte)
+        } else {
+            Err(DeviceManagerError::VIommuNotInitialized)
+        }
+    }
+
+    /// Install s1 nested stage table entries for the device behind vSMMUv3
+    /// # Arguments
+    /// * `virt_sid` - Virtual Stream ID assigned to the device
+    /// * `hwpt_data` - Hardware page table data for nested stage table installation
+    pub fn install_nested_ste(
+        &mut self,
+        virt_sid: u64,
+        hwpt_data: &IommufdHwptData,
+    ) -> DeviceManagerResult<()> {
+        if let Some((vdevice, vfio_device)) = self.vfio_devices.get_mut(&virt_sid) {
+            vfio_device
+                .install_s1_hwpt(vdevice, hwpt_data)
+                .map_err(DeviceManagerError::InstallNestedSte)
+        } else {
+            Err(DeviceManagerError::VIommuNotInitialized)
+        }
+    }
+
+    /// Invalidate IOMMU cache for the vSMMUv3 instance
+    /// # Arguments
+    /// * `cmd` - Invalidate command
+    /// # Returns
+    /// * `Ok(true)` if the cache was successfully invalidated
+    /// * `Err(DeviceManagerError)` if there was an error during invalidation
+    pub fn invalidate_cache(
+        &self,
+        cmd: &iommu_viommu_arm_smmuv3_invalidate,
+    ) -> DeviceManagerResult<bool> {
+        if let Some(viommu) = &self.viommu {
+            let mut hw_invalidate = IommufdInvalidateData::Smmuv3(cmd.clone());
+            viommu
+                .invalidate_hwpt(&mut hw_invalidate)
+                .map_err(DeviceManagerError::InvalidateCache)
+        } else {
+            return Err(DeviceManagerError::VIommuNotInitialized);
+        }
+    }
+
+    /// Check compatibility between physical IOMMU and virtual IOMMU (e.g. vSMMUv3 instance)
+    fn check_compatibility(&self, vfio_device: &IommufdVDevice) -> DeviceManagerResult<()> {
+        let mut data = IommufdHwInfoData::Smmuv3(iommu_hw_info_arm_smmuv3::default());
+        let hw_info = vfio_device
+            .get_device_hw_info(&mut data)
+            .map_err(DeviceManagerError::GetIommuHwInfo)?;
+
+        if hw_info.out_data_type
+            != iommufd_bindings::iommu_hw_info_type_IOMMU_HW_INFO_TYPE_ARM_SMMUV3
+        {
+            error!(
+                "Incompatible IOMMU type: expected 'IOMMU_HW_INFO_TYPE_ARM_SMMUV3 but got '{}'",
+                hw_info.out_data_type
+            );
+            return Err(DeviceManagerError::IncompatibleIommuType);
+        }
+
+        // TODO: Additional compatibility checks needed using `iommu_hw_info_arm_smmuv3`:
+        //
+        // IDR0 (Identification Register 0):
+        //   - STLEVEL: Stream table format must match exactly between physical and virtual
+        //   - TTENDIAN: Physical IOMMU must support little-endian translation tables
+        //   - TTF: Physical IOMMU must support AArch64 translation table format
+        //
+        // IDR1 (Identification Register 1):
+        //   - SIDSIZE: Physical IOMMU must support virtual SIDSIZE (typically 16 bits for QEMU)
+        //   - SSIDSIZE: Physical IOMMU must support virtual SSIDSIZE if PASID is enabled
+        //
+        // IDR3 (Identification Register 3):
+        //   - RIL: Range invalidation support must match exactly
+        //
+        // IDR5 (Identification Register 5):
+        //   - OAS: Physical output address size must be >= virtual output address size
+        //   - GRAN4K/16K/64K: Translation granule support (4K, 16K, 64K pages) must match
+
+        Ok(())
+    }
+}
+
 pub struct DeviceManager {
     // Manage address space related to devices
     address_manager: Arc<AddressManager>,
@@ -1029,8 +1231,13 @@ pub struct DeviceManager {
     vfio_container: Option<Arc<dyn VfioOps>>,
 
     // Paravirtualized IOMMU
+    // Todo: rename iommu_* to virtio_iommu_*
     iommu_device: Option<Arc<Mutex<virtio_devices::Iommu>>>,
     iommu_mapping: Option<Arc<IommuMapping>>,
+
+    #[cfg(feature = "smmuv3")]
+    // Virtual SMMUv3: device_id -> VirtualSMMUv3 instance
+    vsmmuv3_devices: HashMap<String, VirtualSMMUv3>,
 
     // PCI information about devices attached to the paravirtualized IOMMU
     // It contains the virtual IOMMU PCI BDF along with the list of PCI BDF
@@ -1382,6 +1589,8 @@ impl DeviceManager {
             fw_cfg: None,
             #[cfg(feature = "ivshmem")]
             ivshmem_device: None,
+            #[cfg(feature = "smmuv3")]
+            vsmmuv3_devices: HashMap::new(),
         };
 
         let device_manager = Arc::new(Mutex::new(device_manager));
@@ -3660,7 +3869,10 @@ impl DeviceManager {
         self.add_vfio_device(device_cfg)
     }
 
-    fn create_vfio_container(&self) -> DeviceManagerResult<Arc<dyn VfioOps>> {
+    fn create_vfio_container(
+        &self,
+        #[cfg(feature = "iommufd")] s1_hwpt_data_type: Option<iommu_hwpt_data_type>,
+    ) -> DeviceManagerResult<Arc<dyn VfioOps>> {
         let passthrough_device = self
             .passthrough_device
             .as_ref()
@@ -3683,8 +3895,13 @@ impl DeviceManager {
             if iommufd {
                 info!("Using vfio cdev mode with iommufd.");
                 let iommufd = IommuFd::new().unwrap();
-                let vfio_iommufd =
-                    VfioIommufd::new(Arc::new(iommufd), None, Some(Arc::new(dup))).unwrap(); // todo
+                let vfio_iommufd = VfioIommufd::new(
+                    Arc::new(iommufd),
+                    None,
+                    Some(Arc::new(dup)),
+                    s1_hwpt_data_type,
+                )
+                .unwrap(); // todo
                 return Ok(Arc::new(vfio_iommufd));
             } else {
                 info!("Using vfio legacy mode with vfio container/group.");
@@ -3726,8 +3943,28 @@ impl DeviceManager {
         // the same VFIO container since we couldn't map/unmap memory for each
         // device. That's simply because the map/unmap operations happen at the
         // VFIO container level.
+        // TODO: 'device_cfg.iommu' will be an enum that supports: off, virtio-iommu, and vsmmuv3.
         let vfio_container = if device_cfg.iommu {
-            let vfio_container = self.create_vfio_container()?;
+            // 1.1 when using vSMMUv3, create VfioIommuFD with nested_mode if not present
+            //   One VfioIommuFD can be shared among multiple vSMMUv3 and VFIO devices
+            {
+                let _vfio_container = if let Some(vfio_container) = &self.vfio_container {
+                    Arc::clone(vfio_container)
+                } else {
+                    needs_dma_mapping = true;
+
+                    self.create_vfio_container(
+                        #[cfg(feature = "iommufd")]
+                        Some(iommu_hwpt_data_type_IOMMU_HWPT_DATA_ARM_SMMUV3),
+                    )?
+                };
+            }
+
+            // 1.2 when using virtio-iommu, keep the original logic
+            let vfio_container: Arc<dyn VfioOps> = self.create_vfio_container(
+                #[cfg(feature = "iommufd")]
+                None,
+            )?;
 
             let vfio_mapping = Arc::new(VfioDmaMapping::new(
                 Arc::clone(&vfio_container),
@@ -3748,13 +3985,35 @@ impl DeviceManager {
         } else if let Some(vfio_container) = &self.vfio_container {
             Arc::clone(vfio_container)
         } else {
-            let vfio_container = self.create_vfio_container()?;
+            let vfio_container = self.create_vfio_container(
+                #[cfg(feature = "iommufd")]
+                None,
+            )?;
             needs_dma_mapping = true;
             self.vfio_container = Some(Arc::clone(&vfio_container));
 
             vfio_container
         };
 
+        // 2.1 Create VFIO Device with new API `VfioDevice::new_with_iommufd()` when using vSMMUv3
+        {
+            let vsmmuv3 = self
+                .vsmmuv3_devices
+                .get_mut("device_cfg.iommu")
+                .expect("No vsmmuv3 found");
+            let virt_sid = bdf_to_virt_sid(&pci_device_bdf);
+
+            let (vfio_device, iommufd_vdevice) = VfioDevice::new_with_iommufd(
+                &device_cfg.path,
+                vfio_container.clone(),
+                &mut vsmmuv3.viommu,
+                Some(virt_sid),
+            )
+            .unwrap();
+            vsmmuv3.attach_vfio_device(virt_sid, iommufd_vdevice, Arc::new(vfio_device))?;
+        }
+
+        // 2.2 otherwise, create VFIO Device with original API
         let vfio_device = VfioDevice::new(&device_cfg.path, Arc::clone(&vfio_container))
             .map_err(DeviceManagerError::VfioCreate)?;
 
