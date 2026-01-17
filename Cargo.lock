@@ -1041,12 +1041,12 @@ dependencies = [
 [[package]]
 name = "iommufd-bindings"
 version = "0.1.0"
-source = "git+https://github.com/cloud-hypervisor/iommufd?rev=083c016#083c016653508584bb990ef80b91dd04fba22020"
+source = "git+https://github.com/likebreath/iommufd?branch=0129%2Frfc_viommu_vdevice#eabe75262eaf9ec9fdac8aeac65edfcd1a9ced79"
 
 [[package]]
 name = "iommufd-ioctls"
 version = "0.1.0"
-source = "git+https://github.com/cloud-hypervisor/iommufd?rev=083c016#083c016653508584bb990ef80b91dd04fba22020"
+source = "git+https://github.com/likebreath/iommufd?branch=0129%2Frfc_viommu_vdevice#eabe75262eaf9ec9fdac8aeac65edfcd1a9ced79"
 dependencies = [
  "iommufd-bindings",
  "thiserror 2.0.17",
@@ -2253,7 +2253,7 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 [[package]]
 name = "vfio-bindings"
 version = "0.6.1"
-source = "git+https://github.com/likebreath/vfio?branch=0113%2Frevert_rust_vmm_bumps#7c750853eefbda5f03a94754e16fd3ea333ce0b2"
+source = "git+https://github.com/likebreath/vfio?branch=0130%2Frfc_iommufd_nested_hwpt_ch#72e980f8de5c332d1afe675f358d1cbacf51cc17"
 dependencies = [
  "vmm-sys-util 0.14.0",
 ]
@@ -2261,7 +2261,7 @@ dependencies = [
 [[package]]
 name = "vfio-ioctls"
 version = "0.5.2"
-source = "git+https://github.com/likebreath/vfio?branch=0113%2Frevert_rust_vmm_bumps#7c750853eefbda5f03a94754e16fd3ea333ce0b2"
+source = "git+https://github.com/likebreath/vfio?branch=0130%2Frfc_iommufd_nested_hwpt_ch#72e980f8de5c332d1afe675f358d1cbacf51cc17"
 dependencies = [
  "byteorder",
  "iommufd-bindings",
@@ -2494,6 +2494,7 @@ dependencies = [
  "hypervisor",
  "igvm",
  "igvm_defs",
+ "iommufd-bindings",
  "iommufd-ioctls",
  "landlock",
  "libc",

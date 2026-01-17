@@ -14,6 +14,7 @@ igvm = ["dep:igvm", "hex", "igvm_defs", "mshv-bindings", "range_map_vec"]
 io_uring = ["block/io_uring"]
 iommufd = [
   "iommufd-ioctls",
+  "iommufd-bindings",
   "vfio-ioctls/vfio_cdev",
 ]
 ivshmem = ["devices/ivshmem"]
@@ -34,6 +35,7 @@ mshv = [
 ]
 pvmemcontrol = ["devices/pvmemcontrol"]
 sev_snp = ["arch/sev_snp", "hypervisor/sev_snp", "virtio-devices/sev_snp"]
+smmuv3 = []
 tdx = ["arch/tdx", "hypervisor/tdx"]
 tracing = ["tracer/tracing"]
 
@@ -59,6 +61,7 @@ hypervisor = { path = "../hypervisor" }
 igvm = { workspace = true, optional = true }
 igvm_defs = { workspace = true, optional = true }
 iommufd-ioctls = { workspace = true, optional = true }
+iommufd-bindings = { workspace = true, optional = true }
 landlock = "0.4.4"
 libc = { workspace = true }
 linux-loader = { workspace = true, features = ["bzimage", "elf", "pe"] }
