@@ -2295,8 +2295,7 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 [[package]]
 name = "vfio-bindings"
 version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "188dac3057a0cbc94470085204c84b82ff7ec5dac629a514323cd133d1f9abe0"
+source = "git+https://github.com/rust-vmm/vfio.git#8566271b135d8a1e26cc793949886ae69a02b9f0"
 dependencies = [
  "vmm-sys-util",
 ]
@@ -2304,8 +2303,7 @@ dependencies = [
 [[package]]
 name = "vfio-ioctls"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4b1d98dff7f0d219278e406323e7eda4d426447bd203c7828189baf0d8c07b7"
+source = "git+https://github.com/rust-vmm/vfio.git#8566271b135d8a1e26cc793949886ae69a02b9f0"
 dependencies = [
  "byteorder",
  "iommufd-bindings",
