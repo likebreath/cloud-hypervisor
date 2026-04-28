@@ -613,8 +613,31 @@ pub struct DeviceConfig {
     pub pci_common: PciDeviceCommonConfig,
     #[serde(default)]
     pub path: Option<PathBuf>,
+    // Special deserialize handling:
+    // Therefore, we don't serialize FDs, and whatever value is here after
+    // deserialization is invalid.
+    //
+    // Valid FDs are transmitted via a different channel (SCM_RIGHTS message)
+    // and will be populated into this struct on the destination VMM eventually.
+    #[serde(default, deserialize_with = "deserialize_devicecfg_fd")]
+    pub fd: Option<i32>,
     #[serde(default)]
     pub x_nv_gpudirect_clique: Option<u8>,
+}
+
+fn deserialize_devicecfg_fd<'de, D>(d: D) -> Result<Option<i32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let invalid_fd: Option<i32> = Option::deserialize(d)?;
+    if invalid_fd.is_some() {
+        debug!(
+            "FD in 'DeviceConfig' won't be deserialized as it is most likely invalid now. Deserializing it as -1."
+        );
+        Ok(Some(-1))
+    } else {
+        Ok(None)
+    }
 }
 
 impl ApplyLandlock for DeviceConfig {
