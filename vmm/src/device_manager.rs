@@ -3817,8 +3817,13 @@ impl DeviceManager {
             vfio_ops
         };
 
+        // The CLI parser and OpenAPI spec enforce that `path` is set
+        let device_path = device_cfg
+            .path
+            .as_deref()
+            .expect("DeviceConfig::parse enforces a path");
         let vfio_device =
-            VfioDevice::new(&device_cfg.path, Arc::clone(&vfio_ops) as Arc<dyn VfioOps>)
+            VfioDevice::new(device_path, Arc::clone(&vfio_ops) as Arc<dyn VfioOps>)
                 .map_err(DeviceManagerError::VfioCreate)?;
 
         if needs_dma_mapping {
@@ -3899,7 +3904,7 @@ impl DeviceManager {
             memory_manager.lock().unwrap().memory_slot_allocator(),
             vm_migration::snapshot_from_id(self.snapshot.as_ref(), vfio_name.as_str()),
             device_cfg.x_nv_gpudirect_clique,
-            device_cfg.path.clone(),
+            device_path.to_path_buf(),
         )
         .map_err(DeviceManagerError::VfioPciCreate)?;
 
